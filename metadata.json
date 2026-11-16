@@ -1,0 +1,6 @@
+{
+  "name": "IUB: CGPA Survival",
+  "description": "A Hollow Knight-inspired 2D action-adventure platformer set in a ruined, post-apocalyptic Independent University, Bangladesh (IUB) across 3 distinct floors.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

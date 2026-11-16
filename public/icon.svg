@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" fill="none">
+  <rect width="512" height="512" rx="96" fill="#09080c"/>
+  <rect x="24" y="24" width="464" height="464" rx="80" stroke="#e11d48" stroke-width="8" fill="#120e1a"/>
+  <!-- Hollow-Knight Inspired Academic Vessel Horns -->
+  <path d="M168 128L108 56M344 128L404 56" stroke="#f8fafc" stroke-width="22" stroke-linecap="round"/>
+  <!-- Vessel Mask Head -->
+  <path d="M256 88C168 88 112 164 112 262C112 344 172 414 256 436C340 414 400 344 400 262C400 164 344 88 256 88Z" fill="#f8fafc" stroke="#38bdf8" stroke-width="10"/>
+  <!-- Void Eyes -->
+  <ellipse cx="198" cy="268" rx="30" ry="44" fill="#09080c"/>
+  <ellipse cx="314" cy="268" rx="30" ry="44" fill="#09080c"/>
+  <!-- Crimson Red Stamp Bar -->
+  <path d="M186 368H326" stroke="#e11d48" stroke-width="16" stroke-linecap="round"/>
+</svg>
