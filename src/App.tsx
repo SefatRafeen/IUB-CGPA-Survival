@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { hapticService } from './audio/HapticService';
-import { soundEngine } from './audio/SoundEngine';
+import { MusicTrackMeta, soundEngine } from './audio/SoundEngine';
 import { GameEngine, InputActions } from './game/GameEngine';
 import { imagePreloader } from './game/SpriteLoader';
 import { usePWAInstall } from './pwa/usePWAInstall';
@@ -82,6 +82,9 @@ export default function App() {
   );
 
   const [isMuted, setIsMuted] = useState<boolean>(false);
+  const [currentTrack, setCurrentTrack] = useState<MusicTrackMeta | null>(() =>
+    soundEngine.getCurrentTrackMeta()
+  );
   const [hapticsEnabled, setHapticsEnabled] = useState<boolean>(() =>
     hapticService.isEnabled()
   );
@@ -239,10 +242,12 @@ export default function App() {
       1,
       (snapshot) => setHud(snapshot),
       (finalCgpa, elapsedSeconds) => {
+        soundEngine.playVictoryMusic();
         setVictoryStats({ cgpa: finalCgpa, time: elapsedSeconds });
         setScreenState('VICTORY');
       },
       (reason) => {
+        soundEngine.playGameOverMusic();
         setGameOverReason(reason);
         setGhostPathSamples(engine.getDeathGhostPath());
         setInspectGhostWorld(false);
@@ -253,10 +258,32 @@ export default function App() {
       }
     );
     engineRef.current = engine;
+
+    const unsubscribeTrack = soundEngine.onTrackChange((meta) => {
+      setCurrentTrack(meta);
+    });
+
+    // Unlock audio on first pointer or keyboard interaction so Title Screen music starts automatically
+    const onFirstUserGesture = () => {
+      soundEngine.unlock();
+    };
+    window.addEventListener('pointerdown', onFirstUserGesture, { passive: true });
+    window.addEventListener('keydown', onFirstUserGesture, { passive: true });
+
     return () => {
+      unsubscribeTrack();
+      window.removeEventListener('pointerdown', onFirstUserGesture);
+      window.removeEventListener('keydown', onFirstUserGesture);
       soundEngine.stopMusic();
     };
   }, [unlockLevel]);
+
+  // Switch to Title Screen music ('Echoes in the Rain') whenever returning to TITLE screen
+  useEffect(() => {
+    if (screenState === 'TITLE') {
+      soundEngine.playTitleMusic();
+    }
+  }, [screenState]);
 
   const enterFullscreenLandscape = useCallback(async () => {
     try {
@@ -556,8 +583,14 @@ export default function App() {
          ===================================================================== */}
       {screenState !== 'TITLE' && (
         <div className="pointer-events-none fixed inset-0 z-20 flex flex-col justify-between safe-top safe-bottom safe-left safe-right">
-          {/* Top Perimeter Section */}
-          <div className="flex flex-col gap-1.5 px-2 sm:px-4 pt-1.5 sm:pt-2 w-full">
+          {/* Top Perimeter Section (Smoothly dims during Boss Arrival Cinematic Sequence) */}
+          <div
+            className={`flex flex-col gap-1.5 px-2 sm:px-4 pt-1.5 sm:pt-2 w-full transition-all duration-500 ${
+              hud.bossIntro?.active
+                ? 'opacity-15 brightness-50 scale-[0.985] pointer-events-none'
+                : 'opacity-100 brightness-100 scale-100'
+            }`}
+          >
             {/* Row 1: Left Vessel/Stats Cluster · Center Boss Bar (Desktop) · Right Utility & Power-Up Slots */}
             <div className="flex items-start justify-between gap-1.5 sm:gap-3 w-full">
               {/* Top-Left: HP, Stamina, Research Momentum & Live CGPA Meter */}
@@ -740,6 +773,17 @@ export default function App() {
                   </span>
                   <span aria-hidden="true" className="text-slate-600">·</span>
                   <span className="text-slate-400">{formatTime(hud.elapsedSeconds)}</span>
+                  {currentTrack && !isMuted && (
+                    <>
+                      <span aria-hidden="true" className="hidden xl:inline text-slate-600">·</span>
+                      <span
+                        title={`${currentTrack.title} (${currentTrack.subtitle})`}
+                        className="hidden xl:inline text-amber-300/90 truncate max-w-[155px]"
+                      >
+                        ♪ {currentTrack.title}
+                      </span>
+                    </>
+                  )}
                   <button
                     type="button"
                     onClick={toggleFullscreen}
@@ -835,18 +879,84 @@ export default function App() {
             )}
           </div>
 
+          {/* Stylized 'IUB: Hollow Campus' Boss Arrival Cinematic Title Card Overlay */}
+          {hud.bossIntro && hud.bossIntro.active && (() => {
+            const intro = hud.bossIntro;
+            const progress = Math.max(
+              0,
+              Math.min(1, 1 - intro.timer / Math.max(0.01, intro.duration))
+            );
+            const isClosing = progress > 0.8;
+            const accentText =
+              intro.level === 1
+                ? 'text-amber-400'
+                : intro.level === 2
+                ? 'text-lime-400'
+                : 'text-rose-500';
+            const accentBorder =
+              intro.level === 1
+                ? 'border-amber-500/60'
+                : intro.level === 2
+                ? 'border-lime-500/60'
+                : 'border-rose-500/70';
+
+            return (
+              <div
+                className={`self-center my-auto flex flex-col items-center text-center px-5 sm:px-10 py-4 sm:py-6 rounded-2xl bg-[#07060b]/85 border ${accentBorder} shadow-[0_0_55px_rgba(0,0,0,0.95)] backdrop-blur-[2px] max-w-[92vw] transition-all duration-300 ${
+                  isClosing ? 'opacity-0 scale-95' : 'opacity-100 scale-100'
+                }`}
+              >
+                {/* Hollow-Campus Horned Vessel Crest & Filigree */}
+                <div className="flex items-center gap-2.5 sm:gap-4 mb-1.5">
+                  <span className="h-[1px] w-10 sm:w-20 bg-gradient-to-r from-transparent to-slate-300/80" />
+                  <svg
+                    className={`w-5 h-5 sm:w-6 sm:h-6 ${accentText}`}
+                    viewBox="0 0 32 32"
+                    fill="none"
+                  >
+                    <path
+                      d="M16 3L9 11L3 5L6 16C6 22 10 27 16 29C22 27 26 22 26 16L29 5L23 11L16 3Z"
+                      stroke="currentColor"
+                      strokeWidth="1.8"
+                      fill="#120d18"
+                    />
+                    <circle cx="12.5" cy="17.5" r="1.8" fill="currentColor" />
+                    <circle cx="19.5" cy="17.5" r="1.8" fill="currentColor" />
+                  </svg>
+                  <span className="h-[1px] w-10 sm:w-20 bg-gradient-to-l from-transparent to-slate-300/80" />
+                </div>
+
+                <div className="text-[10px] sm:text-xs font-mono font-bold tracking-[0.25em] text-rose-300/95 uppercase mb-1">
+                  IUB: HOLLOW CAMPUS · {intro.floorTitle}
+                </div>
+
+                <h2 className="font-display text-2xl sm:text-4xl md:text-5xl font-extrabold tracking-widest text-white drop-shadow-[0_2px_18px_rgba(225,29,72,0.75)] mb-1">
+                  {intro.bossName.toUpperCase()}
+                </h2>
+
+                <div className={`text-xs sm:text-sm font-mono font-semibold tracking-wider ${accentText}`}>
+                  — {intro.bossSubtitle.toUpperCase()} —
+                </div>
+              </div>
+            );
+          })()}
+
           {/* Center Event Banner Notification */}
-          {hud.notification && (
+          {hud.notification && !hud.bossIntro?.active && (
             <div className="self-center bg-[#0e0c14]/95 border border-amber-500/40 px-3 py-1 rounded text-[10px] sm:text-xs font-mono tracking-wide text-amber-200 shadow-lg max-w-[92vw] text-center truncate">
               {hud.notification}
             </div>
           )}
 
-          {/* Bottom Corner-Anchored Touch Controls (2x2 Grid with Large Hit Targets & Orientation-Safe Container) */}
+          {/* Bottom Corner-Anchored Touch Controls (Dims during Boss Arrival Sequence) */}
           {showTouchControls && screenState === 'PLAYING' && (
             <div
               data-orientation={orientationLayout}
-              className={`pointer-events-none w-full flex items-end justify-between gap-3 ${
+              className={`pointer-events-none w-full flex items-end justify-between gap-3 transition-all duration-500 ${
+                hud.bossIntro?.active
+                  ? 'opacity-15 brightness-50 pointer-events-none'
+                  : 'opacity-100 brightness-100'
+              } ${
                 orientationLayout === 'landscape-compact'
                   ? 'px-2.5 pb-1.5'
                   : 'px-2.5 sm:px-5 pb-2.5 sm:pb-4'
@@ -969,12 +1079,19 @@ export default function App() {
         <div className="fixed inset-0 z-30 flex flex-col justify-between bg-gradient-to-t from-[#09080c] via-[#09080c]/75 to-[#09080c]/40 p-3.5 sm:p-8 md:p-12 safe-top safe-bottom overflow-y-auto">
           {/* Top Minimal Bar */}
           <div className="flex flex-wrap items-center justify-between gap-2">
-            <span className="font-mono text-[10px] sm:text-xs text-slate-300 tracking-wider truncate">
-              <span className="sm:hidden">IUB · POST-APOCALYPTIC ARCHIVE</span>
-              <span className="hidden sm:inline">
-                INDEPENDENT UNIVERSITY, BANGLADESH · POST-APOCALYPTIC ARCHIVE
+            <div className="flex items-center gap-2 min-w-0">
+              <span className="font-mono text-[10px] sm:text-xs text-slate-300 tracking-wider truncate">
+                <span className="sm:hidden">IUB · POST-APOCALYPTIC ARCHIVE</span>
+                <span className="hidden sm:inline">
+                  INDEPENDENT UNIVERSITY, BANGLADESH · POST-APOCALYPTIC ARCHIVE
+                </span>
               </span>
-            </span>
+              {currentTrack && !isMuted && (
+                <span className="hidden md:inline-flex items-center gap-1.5 text-[11px] font-mono text-amber-300/90 bg-slate-900/80 border border-slate-800 px-2.5 py-0.5 rounded-md">
+                  <span>♪ {currentTrack.title}</span>
+                </span>
+              )}
+            </div>
             <div className="flex items-center gap-1.5 sm:gap-2 shrink-0 ml-auto">
               {!isInstalled && (
                 <button

@@ -1365,24 +1365,60 @@ function renderBossArrivalOverlay(
   time: number
 ): void {
   const progress = Math.max(0, Math.min(1, 1 - intro.timer / Math.max(0.01, intro.duration)));
-  // Envelope: fade in (0 -> 0.18), hold (0.18 -> 0.82), fade out (0.82 -> 1.0)
-  const env =
-    progress < 0.18
-      ? progress / 0.18
-      : progress > 0.82
-      ? Math.max(0, (1 - progress) / 0.18)
+  // Smooth envelope: fade in (0 -> 0.16), hold (0.16 -> 0.80), fade out (0.80 -> 1.0)
+  const rawEnv =
+    progress < 0.16
+      ? progress / 0.16
+      : progress > 0.8
+      ? Math.max(0, (1 - progress) / 0.2)
       : 1;
+  const env = rawEnv * rawEnv * (3 - 2 * rawEnv);
+
+  const accentColor =
+    intro.level === 1 ? '#f59e0b' : intro.level === 2 ? '#84cc16' : '#e11d48';
+  const glowColor =
+    intro.level === 1 ? '#dc2626' : intro.level === 2 ? '#65a30d' : '#f43f5e';
 
   ctx.save();
 
-  // 1. Top & Bottom Cinematic Hollow-Campus Letterbox Bars
-  const barH = Math.round(Math.min(72, viewH * 0.12) * env);
-  ctx.fillStyle = 'rgba(6, 5, 10, 0.92)';
+  // 1. Atmospheric Spotlight Vignette focusing on the Boss in the center of the camera
+  const spotGrad = ctx.createRadialGradient(
+    viewW * 0.5,
+    viewH * 0.45,
+    Math.min(viewW, viewH) * 0.14,
+    viewW * 0.5,
+    viewH * 0.45,
+    Math.max(viewW, viewH) * 0.68
+  );
+  spotGrad.addColorStop(0, 'rgba(9, 8, 12, 0)');
+  spotGrad.addColorStop(0.55, `rgba(9, 8, 12, ${(0.38 * env).toFixed(3)})`);
+  spotGrad.addColorStop(1, `rgba(5, 4, 9, ${(0.84 * env).toFixed(3)})`);
+  ctx.fillStyle = spotGrad;
+  ctx.fillRect(0, 0, viewW, viewH);
+
+  // Expanding shockwave ring when Boss roars at progress ~0.26
+  if (progress >= 0.25 && progress <= 0.65) {
+    const ringT = (progress - 0.25) / 0.4;
+    const ringRadius = 30 + ringT * Math.min(viewW, viewH) * 0.52;
+    ctx.save();
+    ctx.globalAlpha = Math.max(0, (1 - ringT) * 0.65 * env);
+    ctx.strokeStyle = accentColor;
+    ctx.lineWidth = 3 * (1 - ringT * 0.6);
+    ctx.beginPath();
+    ctx.arc(viewW * 0.5, viewH * 0.46, ringRadius, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.restore();
+  }
+
+  // 2. Top & Bottom Cinematic Hollow-Campus Letterbox Bars
+  const barH = Math.round(Math.min(76, viewH * 0.125) * env);
+  ctx.fillStyle = 'rgba(6, 5, 10, 0.95)';
   ctx.fillRect(0, 0, viewW, barH);
   ctx.fillRect(0, viewH - barH, viewW, barH);
 
-  // Subtle crimson/ivory border trim on letterbox bars
-  ctx.strokeStyle = `rgba(225, 29, 72, ${0.55 * env})`;
+  // Ornate double-line crimson/gold trim on letterbox bars
+  ctx.strokeStyle = accentColor;
+  ctx.globalAlpha = 0.68 * env;
   ctx.lineWidth = 1.5;
   ctx.beginPath();
   ctx.moveTo(0, barH);
@@ -1391,73 +1427,92 @@ function renderBossArrivalOverlay(
   ctx.lineTo(viewW, viewH - barH);
   ctx.stroke();
 
-  // 2. Signature IUB: Hollow Campus Dark Aesthetic Title Banner in Lower-Center / Center-Bottom
+  // 3. Stylized 'IUB: HOLLOW CAMPUS' Dark-Aesthetic Title Card
   const bannerY = viewH * 0.72;
   const cx = viewW * 0.5;
-
   ctx.globalAlpha = env;
 
-  // Atmospheric dark void backdrop band behind boss title
-  const bandGrad = ctx.createLinearGradient(cx - 320, 0, cx + 320, 0);
-  bandGrad.addColorStop(0, 'rgba(9, 8, 12, 0)');
-  bandGrad.addColorStop(0.2, 'rgba(9, 8, 12, 0.86)');
-  bandGrad.addColorStop(0.5, 'rgba(20, 11, 18, 0.94)');
-  bandGrad.addColorStop(0.8, 'rgba(9, 8, 12, 0.86)');
-  bandGrad.addColorStop(1, 'rgba(9, 8, 12, 0)');
+  // Deep feathered void band behind the title card
+  const bandW = Math.min(viewW * 0.92, 680);
+  const bandGrad = ctx.createLinearGradient(cx - bandW * 0.5, 0, cx + bandW * 0.5, 0);
+  bandGrad.addColorStop(0, 'rgba(7, 6, 11, 0)');
+  bandGrad.addColorStop(0.15, 'rgba(9, 8, 14, 0.88)');
+  bandGrad.addColorStop(0.5, 'rgba(18, 10, 18, 0.96)');
+  bandGrad.addColorStop(0.85, 'rgba(9, 8, 14, 0.88)');
+  bandGrad.addColorStop(1, 'rgba(7, 6, 11, 0)');
   ctx.fillStyle = bandGrad;
-  ctx.fillRect(cx - 320, bannerY - 64, 640, 116);
+  ctx.fillRect(cx - bandW * 0.5, bannerY - 68, bandW, 128);
 
-  // Ornate Hollow-Knight inspired upper filigree & diamond crest
-  const lineSpan = Math.min(viewW * 0.38, 230) * (0.6 + 0.4 * env);
+  // Ornate Hollow-Knight inspired upper filigree & horned vessel seal
+  const lineSpan = Math.min(viewW * 0.38, 240) * (0.45 + 0.55 * env);
   ctx.strokeStyle = '#e2e8f0';
-  ctx.lineWidth = 1.5;
+  ctx.lineWidth = 1.6;
   ctx.beginPath();
-  ctx.moveTo(cx - lineSpan, bannerY - 22);
-  ctx.lineTo(cx - 18, bannerY - 22);
-  ctx.moveTo(cx + 18, bannerY - 22);
-  ctx.lineTo(cx + lineSpan, bannerY - 22);
+  ctx.moveTo(cx - lineSpan, bannerY - 24);
+  ctx.lineTo(cx - 22, bannerY - 24);
+  ctx.moveTo(cx + 22, bannerY - 24);
+  ctx.lineTo(cx + lineSpan, bannerY - 24);
+  // Outer diamond finials
+  ctx.moveTo(cx - lineSpan - 6, bannerY - 24);
+  ctx.lineTo(cx - lineSpan, bannerY - 28);
+  ctx.lineTo(cx - lineSpan + 6, bannerY - 24);
+  ctx.lineTo(cx - lineSpan, bannerY - 20);
+  ctx.closePath();
+  ctx.moveTo(cx + lineSpan - 6, bannerY - 24);
+  ctx.lineTo(cx + lineSpan, bannerY - 28);
+  ctx.lineTo(cx + lineSpan + 6, bannerY - 24);
+  ctx.lineTo(cx + lineSpan, bannerY - 20);
+  ctx.closePath();
   ctx.stroke();
 
-  // Center crimson diamond & horn crest
-  ctx.fillStyle = '#f43f5e';
+  // Center horned Hollow-Campus crest diamond
+  ctx.fillStyle = accentColor;
   ctx.beginPath();
-  ctx.moveTo(cx, bannerY - 30);
-  ctx.lineTo(cx + 8, bannerY - 22);
-  ctx.lineTo(cx, bannerY - 14);
-  ctx.lineTo(cx - 8, bannerY - 22);
+  ctx.moveTo(cx, bannerY - 33);
+  ctx.lineTo(cx + 9, bannerY - 24);
+  ctx.lineTo(cx, bannerY - 15);
+  ctx.lineTo(cx - 9, bannerY - 24);
   ctx.closePath();
   ctx.fill();
 
-  // Floor / Archive header above filigree
+  // Signature Header: IUB: HOLLOW CAMPUS
   ctx.fillStyle = '#fda4af';
   ctx.font = '700 10px "JetBrains Mono", monospace';
   ctx.textAlign = 'center';
   ctx.fillText(
-    `IUB: HOLLOW CAMPUS · FLOOR ${intro.level} WARDEN`,
+    `IUB: HOLLOW CAMPUS · ${intro.floorTitle.toUpperCase()}`,
     cx,
-    bannerY - 38
+    bannerY - 40
   );
 
-  // Main Boss Name in Cinzel Display Serif with subtle crimson/white glow
-  ctx.shadowColor = '#e11d48';
-  ctx.shadowBlur = 18 + Math.sin(time * 8) * 4;
+  // Main Boss Title in Cinzel Display Serif with atmospheric glow
+  const titleFontSize = Math.max(22, Math.min(34, Math.floor(viewW * 0.052)));
+  ctx.shadowColor = glowColor;
+  ctx.shadowBlur = 20 + Math.sin(time * 9) * 5;
   ctx.fillStyle = '#ffffff';
-  ctx.font = '800 30px "Cinzel", serif';
-  ctx.fillText(intro.bossName.toUpperCase(), cx, bannerY + 12);
+  ctx.font = `800 ${titleFontSize}px "Cinzel", serif`;
+  ctx.fillText(intro.bossName.toUpperCase(), cx, bannerY + 11);
   ctx.shadowBlur = 0;
 
-  // Subtitle / Epithet below
-  ctx.fillStyle = '#cbd5e1';
+  // Boss Subtitle / Academic Threat Epithet
+  ctx.fillStyle = '#e2e8f0';
   ctx.font = '600 12px "JetBrains Mono", monospace';
-  ctx.fillText(`— ${intro.bossSubtitle.toUpperCase()} —`, cx, bannerY + 34);
+  ctx.fillText(`— ${intro.bossSubtitle.toUpperCase()} —`, cx, bannerY + 33);
 
-  // Lower filigree rule
-  ctx.strokeStyle = 'rgba(244, 63, 94, 0.65)';
-  ctx.lineWidth = 1.2;
+  // Lower ornate filigree rule with centerpip
+  ctx.strokeStyle = accentColor;
+  ctx.lineWidth = 1.3;
   ctx.beginPath();
-  ctx.moveTo(cx - lineSpan * 0.65, bannerY + 44);
-  ctx.lineTo(cx + lineSpan * 0.65, bannerY + 44);
+  ctx.moveTo(cx - lineSpan * 0.7, bannerY + 45);
+  ctx.lineTo(cx - 8, bannerY + 45);
+  ctx.moveTo(cx + 8, bannerY + 45);
+  ctx.lineTo(cx + lineSpan * 0.7, bannerY + 45);
   ctx.stroke();
+
+  ctx.fillStyle = '#f8fafc';
+  ctx.beginPath();
+  ctx.arc(cx, bannerY + 45, 2.5, 0, Math.PI * 2);
+  ctx.fill();
 
   ctx.restore();
 }

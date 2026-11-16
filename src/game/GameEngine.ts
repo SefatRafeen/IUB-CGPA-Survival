@@ -94,6 +94,7 @@ export class GameEngine {
   // Boss Arrival Sequence State
   private bossIntro: BossIntroState | null = null;
   private bossIntroCompleted: boolean = false;
+  private bossIntroRoarTriggered: boolean = false;
 
   // Dynamic CGPA Enemy Spawn & Probation Environmental Hazard Timers
   private dynamicEnemySpawnTimer: number = 6.5;
@@ -171,6 +172,7 @@ export class GameEngine {
     this.isGameOverState = false;
     this.bossIntro = null;
     this.bossIntroCompleted = false;
+    this.bossIntroRoarTriggered = false;
     this.ghostHistory = [];
     this.deathGhostPath = [];
     this.ghostSampleTimer = 0;
@@ -403,52 +405,105 @@ export class GameEngine {
       if (this.playerShatterTimer >= this.playerShatterDuration) {
         this.playerShattering = false;
         this.isGameOverState = true;
+        soundEngine.playGameOverMusic();
         this.onGameOver(this.pendingGameOverReason);
       }
       return;
     }
 
-    // Handle 'Boss Arrival' Sequence (Camera pans to Boss & displays IUB: Hollow Campus title card before combat)
+    // Handle 'Boss Arrival' Sequence (Camera pans to Boss, HUD dims, and displays IUB: Hollow Campus title card before combat)
     if (this.bossIntro && this.bossIntro.active) {
       this.bossIntro.timer -= dt;
       this.player.vx = 0;
       this.player.vy = 0;
-      this.player.invulnTimer = Math.max(this.player.invulnTimer, 0.5);
+      this.player.invulnTimer = Math.max(this.player.invulnTimer, 0.65);
 
-      const progress = 1 - this.bossIntro.timer / Math.max(0.01, this.bossIntro.duration);
+      const progress = Math.max(
+        0,
+        Math.min(1, 1 - this.bossIntro.timer / Math.max(0.01, this.bossIntro.duration))
+      );
       const bossCenterX = this.level.boss.x + this.level.boss.w * 0.5;
+      const bossCenterY = this.level.boss.y + this.level.boss.h * 0.5;
       const playerCenterX = this.player.x + this.player.w * 0.5;
 
-      // Smoothly pan camera to Boss (0.0 -> 0.82), then blend toward combat framing (0.82 -> 1.0)
-      const panBlend =
-        progress < 0.82
-          ? Math.min(1, progress / 0.28)
-          : Math.max(0, 1 - (progress - 0.82) / 0.18);
-      const focusX = playerCenterX * (1 - panBlend) + bossCenterX * panBlend;
-      const desiredIntroCamX = Math.max(
+      // Trigger Boss Arrival roar/slam pose & shockwave particles when camera locks onto Boss (~26% into sequence)
+      if (progress >= 0.26 && !this.bossIntroRoarTriggered) {
+        this.bossIntroRoarTriggered = true;
+        this.level.boss.state = 'ATTACK';
+        this.level.boss.hitFlash = 0.16;
+        if (this.level.id === 1) {
+          soundEngine.play('syllabus_slam');
+          this.spawnPaperConfetti(bossCenterX, bossCenterY, 26);
+        } else if (this.level.id === 2) {
+          soundEngine.play('probation_beep');
+          this.spawnBurst(bossCenterX, bossCenterY, '#84cc16', 24);
+        } else {
+          soundEngine.play('dismissal_stamp');
+          this.spawnBloodPaperConfetti(bossCenterX, bossCenterY, 28);
+        }
+        this.triggerScreenShake(15, 'LOW_FREQ_HEAVY');
+      } else if (progress >= 0.68) {
+        this.level.boss.state = 'IDLE';
+      }
+
+      // Compute final combat camera target so the transition at the end of Boss Arrival is 100% seamless
+      const arenaW = this.level.bossArenaRightX - this.level.bossArenaLeftX;
+      let combatCamX = (this.level.bossArenaLeftX + this.level.bossArenaRightX - viewW) * 0.5;
+      if (viewW < arenaW) {
+        const combatFocusX = playerCenterX * 0.7 + bossCenterX * 0.3;
+        combatCamX = Math.max(
+          this.level.bossArenaLeftX - 24,
+          Math.min(this.level.bossArenaRightX - viewW + 24, combatFocusX - viewW * 0.5)
+        );
+      }
+      combatCamX = Math.max(0, Math.min(this.level.worldWidth - viewW, combatCamX));
+
+      const bossFocusCamX = Math.max(
         0,
-        Math.min(this.level.worldWidth - viewW, focusX - viewW * 0.5)
+        Math.min(this.level.worldWidth - viewW, bossCenterX - viewW * 0.5)
       );
+
+      // Smooth cubic S-curve pan: Player (0.0 -> 0.24) -> Hold on Boss (0.24 -> 0.78) -> Smoothly frame Combat Arena (0.78 -> 1.0)
+      const smoothstep = (t: number) => t * t * (3 - 2 * t);
+      let desiredIntroCamX = bossFocusCamX;
+      let panElevation = 1;
+      if (progress < 0.24) {
+        const t = smoothstep(progress / 0.24);
+        const startCamX = Math.max(
+          0,
+          Math.min(this.level.worldWidth - viewW, playerCenterX - viewW * 0.38)
+        );
+        desiredIntroCamX = startCamX * (1 - t) + bossFocusCamX * t;
+        panElevation = t;
+      } else if (progress > 0.78) {
+        const t = smoothstep((progress - 0.78) / 0.22);
+        desiredIntroCamX = bossFocusCamX * (1 - t) + combatCamX * t;
+        panElevation = 1 - t;
+      }
+
       const isPortraitView = viewH > viewW;
       const floorScreenRatio = isPortraitView ? 0.68 : 0.82;
       const desiredIntroCamY = Math.max(
         -720,
-        Math.min(180, this.level.floorY - viewH * floorScreenRatio - panBlend * 24)
+        Math.min(180, this.level.floorY - viewH * floorScreenRatio - panElevation * 28)
       );
 
-      this.camX += (desiredIntroCamX - this.camX) * Math.min(1, dt * 6.5);
-      this.camY += (desiredIntroCamY - this.camY) * Math.min(1, dt * 6.5);
+      this.camX += (desiredIntroCamX - this.camX) * Math.min(1, dt * 8.5);
+      this.camY += (desiredIntroCamY - this.camY) * Math.min(1, dt * 8.5);
 
       if (this.bossIntro.timer <= 0) {
         this.bossIntro = null;
         this.bossIntroCompleted = true;
         this.level.boss.active = true;
+        this.level.boss.state = 'IDLE';
         this.notify(`COMBAT BEGINS: ${this.level.boss.name.toUpperCase()}!`);
-        this.triggerScreenShake(12, 'STANDARD');
+        this.triggerScreenShake(10, 'STANDARD');
+        this.emitHud();
+        return;
       }
 
       this.hudSyncAccum += rawDt;
-      if (this.hudSyncAccum >= 0.065) {
+      if (this.hudSyncAccum >= 0.05) {
         this.hudSyncAccum = 0;
         this.emitHud();
       }
@@ -845,23 +900,25 @@ export class GameEngine {
       this.player.x >= this.level.bossArenaTriggerX
     ) {
       this.level.bellCurve.active = false;
+      this.bossIntroRoarTriggered = false;
       this.bossIntro = {
         active: true,
-        timer: 3.1,
-        duration: 3.1,
+        timer: 3.4,
+        duration: 3.4,
         bossName: this.level.boss.name,
         bossSubtitle: this.level.boss.subtitle,
         floorTitle: this.level.name,
         level: this.level.id,
       };
+      soundEngine.startBossMusic(this.level.id);
       if (this.level.id === 1) {
-        soundEngine.play('syllabus_slam');
+        soundEngine.play('syllabus_slice');
       } else if (this.level.id === 2) {
         soundEngine.play('probation_chain');
       } else {
-        soundEngine.play('dismissal_stamp');
+        soundEngine.play('prerequisite_lock');
       }
-      this.triggerScreenShake(11, 'STANDARD');
+      this.triggerScreenShake(9, 'STANDARD');
       this.emitHud();
       return;
     }
@@ -1315,6 +1372,7 @@ export class GameEngine {
         }, 1200);
       } else {
         this.player.cgpa = Math.min(4.0, +(this.player.cgpa + 0.35).toFixed(2));
+        soundEngine.playVictoryMusic();
         this.emitHud();
         this.onVictory(this.player.cgpa, this.elapsedSeconds);
       }
